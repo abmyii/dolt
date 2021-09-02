@@ -210,9 +210,6 @@ func (nrr *NomsRangeReader) Close(ctx context.Context) error {
 
 // SqlRowFromTuples constructs a go-mysql-server/sql.Row from Noms tuples.
 func SqlRowFromTuples(sch schema.Schema, key, val types.Tuple) (sql.Row, error) {
-	allCols := sch.GetAllCols()
-	colVals := make(sql.Row, allCols.Size())
-
 	keySl, err := key.AsSlice()
 	if err != nil {
 		return nil, err
@@ -222,7 +219,14 @@ func SqlRowFromTuples(sch schema.Schema, key, val types.Tuple) (sql.Row, error) 
 		return nil, err
 	}
 
-	for _, sl := range []types.TupleValueSlice{keySl, valSl} {
+	return SqlRowFromTupleValueSlices(sch, keySl, valSl)
+}
+
+func SqlRowFromTupleValueSlices(sch schema.Schema, valSlices ...types.TupleValueSlice) (sql.Row, error) {
+	allCols := sch.GetAllCols()
+	colVals := make(sql.Row, allCols.Size())
+
+	for _, sl := range valSlices {
 		var convErr error
 		err := row.IterPkTuple(sl, func(tag uint64, val types.Value) (stop bool, err error) {
 			if idx, ok := allCols.TagToIdx[tag]; ok {

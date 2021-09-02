@@ -53,6 +53,13 @@ func KeylessRow(nbf *types.NomsBinFormat, vals ...types.Value) (Row, error) {
 	return keylessRowWithCardinality(nbf, 1, vals...)
 }
 
+func NewKeylessRow(key, val types.Tuple) Row {
+	return keylessRow{
+		key: key,
+		val: val,
+	}
+}
+
 func KeylessRowsFromTuples(key, val types.Tuple) (Row, uint64, error) {
 	c, err := val.Get(1)
 	if err != nil {

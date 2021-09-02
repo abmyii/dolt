@@ -23,15 +23,17 @@ import (
 	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
 	"github.com/dolthub/dolt/go/libraries/doltcore/row"
 	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
-	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/typed/noms"
 	"github.com/dolthub/dolt/go/store/types"
 )
 
 type keylessTableReader struct {
 	iter types.MapIterator
 	sch  schema.Schema
+	et   types.Tuple
 
 	row             row.Row
+	valSl           []types.Value
 	remainingCopies uint64
 }
 
@@ -53,13 +55,18 @@ func (rdr *keylessTableReader) ReadRow(ctx context.Context) (row.Row, error) {
 			return nil, io.EOF
 		}
 
-		rdr.row, rdr.remainingCopies, err = row.KeylessRowsFromTuples(key.(types.Tuple), val.(types.Tuple))
+		valTpl := val.(types.Tuple)
+		rdr.valSl, err = valTpl.AsSlice()
 		if err != nil {
 			return nil, err
 		}
+
+		rdr.remainingCopies = uint64(rdr.valSl[1].(types.Uint))
 		if rdr.remainingCopies == 0 {
 			return nil, row.ErrZeroCardinality
 		}
+
+		rdr.row = row.NewKeylessRow(key.(types.Tuple), valTpl)
 	}
 
 	rdr.remainingCopies -= 1
@@ -69,12 +76,12 @@ func (rdr *keylessTableReader) ReadRow(ctx context.Context) (row.Row, error) {
 
 // ReadSqlRow implements the SqlTableReader interface.
 func (rdr *keylessTableReader) ReadSqlRow(ctx context.Context) (sql.Row, error) {
-	r, err := rdr.ReadRow(ctx)
+	_, err := rdr.ReadRow(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return sqlutil.DoltRowToSqlRow(r, rdr.sch)
+	return noms.SqlRowFromTupleValueSlices(rdr.sch, rdr.valSl[2:])
 }
 
 // Close implements the TableReadCloser interface.
@@ -106,6 +113,7 @@ func newKeylessTableReaderForRows(ctx context.Context, rows types.Map, sch schem
 	return &keylessTableReader{
 		iter: iter,
 		sch:  sch,
+		et:   types.EmptyTuple(rows.Format()),
 	}, nil
 }
 
@@ -124,6 +132,7 @@ func newKeylessTableReaderForPartition(ctx context.Context, tbl *doltdb.Table, s
 	return &keylessTableReader{
 		iter: iter,
 		sch:  sch,
+		et:   types.EmptyTuple(tbl.Format()),
 	}, nil
 }
 
