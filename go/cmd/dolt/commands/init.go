@@ -17,6 +17,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/fatih/color"
@@ -24,6 +25,7 @@ import (
 	"github.com/dolthub/dolt/go/cmd/dolt/cli"
 	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
 	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
 	"github.com/dolthub/dolt/go/libraries/utils/argparser"
 	"github.com/dolthub/dolt/go/store/types"
 )
@@ -32,6 +34,7 @@ const (
 	emailParamName      = "email"
 	usernameParamName   = "name"
 	initBranchParamName = "initial-branch"
+	fun                 = "fun"
 )
 
 var initDocs = cli.CommandDocumentationContent{
@@ -75,6 +78,7 @@ func (cmd InitCmd) ArgParser() *argparser.ArgParser {
 	ap.SupportsString(emailParamName, "", "email", fmt.Sprintf("The email address used. If not provided will be taken from {{.EmphasisLeft}}%s{{.EmphasisRight}} in the global config.", env.UserEmailKey))
 	ap.SupportsString(cli.DateParam, "", "date", "Specify the date used in the initial commit. If not specified the current system time is used.")
 	ap.SupportsString(initBranchParamName, "b", "branch", fmt.Sprintf("The branch name used to initialize this database. If not provided will be taken from {{.EmphasisLeft}}%s{{.EmphasisRight}} in the global config. If unset, the default initialized branch will be named '%s'.", env.InitBranchName, env.DefaultInitBranch))
+	ap.SupportsFlag(fun, "", "Fun!")
 	return ap
 }
 
@@ -133,9 +137,37 @@ func (cmd InitCmd) Exec(ctx context.Context, commandStr string, args []string, d
 	}
 
 	err := dEnv.InitRepoWithTime(context.Background(), types.Format_Default, name, email, initBranch, t)
+
 	if err != nil {
 		cli.PrintErrln(color.RedString("Failed to initialize directory as a data repo. %s", err.Error()))
 		return 1
+	}
+
+	if apr.Contains(fun) {
+		commit, _ := dEnv.HeadCommit(context.Background())
+		hash, _ := commit.HashOf()
+
+		reg := regexp.MustCompile("(?i)^d[o0][l1]t")
+		for !reg.MatchString(hash.String()) {
+			err = dEnv.FS.Delete(dEnv.GetDoltDir(), true)
+
+			if err != nil {
+				cli.PrintErrln(color.RedString("Failed to delete old repo. %s", err.Error()))
+				return 1
+			}
+
+			dEnv = env.Load(context.Background(), env.GetCurrentUserHomeDir, dEnv.FS, doltdb.LocalDirDoltDB, dEnv.Version)
+			err = dEnv.InitRepoWithTime(context.Background(), types.Format_Default, name, email, initBranch, time.Now())
+
+			if err != nil {
+				cli.PrintErrln(color.RedString("Failed to initialize directory as a data repo. %s", err.Error()))
+				return 1
+			}
+
+			commit, _ = dEnv.HeadCommit(context.Background())
+			hash, _ = commit.HashOf()
+			println(hash.String())
+		}
 	}
 
 	configuration := make(map[string]string)
